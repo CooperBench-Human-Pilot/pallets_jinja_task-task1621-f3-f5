@@ -3,6 +3,7 @@ sources.
 """
 import importlib.util
 import os
+import string
 import sys
 import typing as t
 import weakref
@@ -21,10 +22,36 @@ if t.TYPE_CHECKING:
     from .environment import Template
 
 
+def validate_template_path(template: str) -> None:
+    """Validate a template path for security issues before loading.
+
+    Raises a :class:`TemplateNotFound` error if the path is empty, contains a
+    null byte, is an absolute path, starts with a Windows drive letter, or
+    contains ASCII control characters (other than tab, newline, and carriage
+    return).
+    """
+    if not template:
+        raise TemplateNotFound(template)
+
+    if "\x00" in template:
+        raise TemplateNotFound(template)
+
+    if template[0] in "/\\":
+        raise TemplateNotFound(template)
+
+    if len(template) >= 2 and template[0] in string.ascii_letters and template[1] == ":":
+        raise TemplateNotFound(template)
+
+    for char in template:
+        if ord(char) < 32 and char not in "\t\n\r":
+            raise TemplateNotFound(template)
+
+
 def split_template_path(template: str) -> t.List[str]:
     """Split a path into segments and perform a sanity check.  If it detects
     '..' in the path it will raise a `TemplateNotFound` error.
     """
+    validate_template_path(template)
     pieces = []
     for piece in template.split("/"):
         if (
