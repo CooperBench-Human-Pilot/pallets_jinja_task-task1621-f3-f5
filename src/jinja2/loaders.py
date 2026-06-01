@@ -187,10 +187,32 @@ class FileSystemLoader(BaseLoader):
         self.searchpath = [os.fspath(p) for p in searchpath]
         self.encoding = encoding
         self.followlinks = followlinks
+        self._path_cache: t.Dict[str, t.Optional[str]] = {}
 
     def get_source(
         self, environment: "Environment", template: str
     ) -> t.Tuple[str, str, t.Callable[[], bool]]:
+        if template in self._path_cache:
+            cached = self._path_cache[template]
+            if cached is None:
+                raise TemplateNotFound(template)
+            f = open_if_exists(cached)
+            if f is not None:
+                try:
+                    contents = f.read().decode(self.encoding)
+                finally:
+                    f.close()
+                mtime = os.path.getmtime(cached)
+
+                def uptodate() -> bool:
+                    try:
+                        return os.path.getmtime(cached) == mtime
+                    except OSError:
+                        return False
+
+                return contents, cached, uptodate
+            del self._path_cache[template]
+
         pieces = split_template_path(template)
         for searchpath in self.searchpath:
             filename = os.path.join(searchpath, *pieces)
@@ -210,7 +232,9 @@ class FileSystemLoader(BaseLoader):
                 except OSError:
                     return False
 
+            self._path_cache[template] = filename
             return contents, filename, uptodate
+        self._path_cache[template] = None
         raise TemplateNotFound(template)
 
     def list_templates(self) -> t.List[str]:
